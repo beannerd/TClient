@@ -2247,21 +2247,27 @@ void CGraphics_Threaded::SetForcedAspect(bool Force)
 
 void CGraphics_Threaded::AdjustViewport(bool SendViewportChangeToBackend)
 {
+	// exclude the area covered by the display cutout, as nothing rendered there is visible
+	int InsetLeft, InsetRight;
+	m_pBackend->GetDisplayCutoutInsets(InsetLeft, InsetRight);
+	m_ViewportX = InsetLeft;
+	m_ScreenWidth = m_DrawableWidth - InsetLeft - InsetRight;
+
 	// adjust the viewport to only allow certain aspect ratios
 	// keep this in sync with backend_vulkan GetSwapImageSize's check
 	if(m_ScreenHeight > 4 * m_ScreenWidth / 5 && g_GraphicsForcedAspect)
 	{
 		m_IsForcedViewport = true;
 		m_ScreenHeight = 4 * m_ScreenWidth / 5;
-
-		if(SendViewportChangeToBackend)
-		{
-			UpdateViewport(0, 0, m_ScreenWidth, m_ScreenHeight, true);
-		}
 	}
 	else
 	{
 		m_IsForcedViewport = false;
+	}
+
+	if(SendViewportChangeToBackend && (m_ScreenWidth != m_DrawableWidth || m_ScreenHeight != m_DrawableHeight))
+	{
+		UpdateViewport(m_ViewportX, 0, m_ScreenWidth, m_ScreenHeight, true);
 	}
 }
 
@@ -2674,7 +2680,7 @@ void CGraphics_Threaded::GotResized(int w, int h, int RefreshRate)
 	g_Config.m_GfxScreenRefreshRate = m_ScreenRefreshRate;
 
 	auto OldDpi = m_ScreenHiDPIScale;
-	m_ScreenHiDPIScale = m_ScreenWidth / (float)g_Config.m_GfxScreenWidth;
+	m_ScreenHiDPIScale = m_DrawableWidth / (float)g_Config.m_GfxScreenWidth;
 
 	// A DPI change must notify the listeners, since e.g. video modes
 	// currently depend on it.
@@ -2684,7 +2690,7 @@ void CGraphics_Threaded::GotResized(int w, int h, int RefreshRate)
 			PropChangedListener();
 	}
 
-	UpdateViewport(0, 0, m_ScreenWidth, m_ScreenHeight, true);
+	UpdateViewport(m_ViewportX, 0, m_ScreenWidth, m_ScreenHeight, true);
 
 	// kick the command buffer and wait
 	KickCommandBuffer();
@@ -2806,6 +2812,17 @@ void CGraphics_Threaded::TakeCustomScreenshot(const char *pFilename)
 
 void CGraphics_Threaded::Swap()
 {
+#if defined(CONF_PLATFORM_IOS)
+	// Rotating the device by 180 degrees moves the cutout to the other side without
+	// changing the window size, which would not cause a resize event.
+	int InsetLeft, InsetRight;
+	m_pBackend->GetDisplayCutoutInsets(InsetLeft, InsetRight);
+	if(InsetLeft != m_ViewportX || m_DrawableWidth - InsetLeft - InsetRight != m_ScreenWidth)
+	{
+		GotResized(g_Config.m_GfxScreenWidth, g_Config.m_GfxScreenHeight, -1);
+	}
+#endif
+
 	bool Swapped = false;
 	ScreenshotDirect(&Swapped);
 	ReadPixelDirect(&Swapped);
@@ -2817,11 +2834,6 @@ void CGraphics_Threaded::Swap()
 	}
 
 	KickCommandBuffer();
-	// TODO: Remove when https://github.com/libsdl-org/SDL/issues/5203 is fixed
-#ifdef CONF_PLATFORM_MACOS
-	if(str_find(GetVersionString(), "Metal"))
-		WaitForIdle();
-#endif
 }
 
 bool CGraphics_Threaded::SetVSync(bool State)
