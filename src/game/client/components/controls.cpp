@@ -282,6 +282,36 @@ int CControls::SnapInput(int *pData)
 		if(!m_aInputData[g_Config.m_ClDummy].m_TargetX && !m_aInputData[g_Config.m_ClDummy].m_TargetY)
 			m_aInputData[g_Config.m_ClDummy].m_TargetX = 1;
 
+		// FNG Aim Lock for local/private testing. Aim at the nearest active tee.
+		// This only changes aim; it does not fire or move the player.
+		if(g_Config.m_TcFngAimLock && !g_Config.m_ClDummy && GameClient()->m_Snap.m_pLocalCharacter && !GameClient()->m_Snap.m_SpecInfo.m_Active)
+		{
+			const int LocalId = GameClient()->m_Snap.m_LocalClientId;
+			const vec2 LocalPos((float)GameClient()->m_Snap.m_pLocalCharacter->m_X, (float)GameClient()->m_Snap.m_pLocalCharacter->m_Y);
+			float BestDistSq = 1e30f;
+			vec2 BestDelta(0.0f, 0.0f);
+			bool FoundTarget = false;
+			for(int ClientId = 0; ClientId < MAX_CLIENTS; ++ClientId)
+			{
+				if(ClientId == LocalId || !GameClient()->m_Snap.m_aCharacters[ClientId].m_Active)
+					continue;
+				const CNetObj_Character &Other = GameClient()->m_Snap.m_aCharacters[ClientId].m_Cur;
+				const vec2 Delta((float)Other.m_X - LocalPos.x, (float)Other.m_Y - LocalPos.y);
+				const float DistSq = Delta.x * Delta.x + Delta.y * Delta.y;
+				if(DistSq < BestDistSq)
+				{
+					BestDistSq = DistSq;
+					BestDelta = Delta;
+					FoundTarget = true;
+				}
+			}
+			if(FoundTarget && (BestDelta.x != 0.0f || BestDelta.y != 0.0f))
+			{
+				m_aInputData[g_Config.m_ClDummy].m_TargetX = (int)BestDelta.x;
+				m_aInputData[g_Config.m_ClDummy].m_TargetY = (int)BestDelta.y;
+			}
+		}
+
 		// set direction
 		m_aInputData[g_Config.m_ClDummy].m_Direction = 0;
 		if(m_aInputDirectionLeft[g_Config.m_ClDummy] && !m_aInputDirectionRight[g_Config.m_ClDummy])
