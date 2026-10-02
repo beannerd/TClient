@@ -289,6 +289,33 @@ int CControls::SnapInput(int *pData)
 		if(!m_aInputDirectionLeft[g_Config.m_ClDummy] && m_aInputDirectionRight[g_Config.m_ClDummy])
 			m_aInputData[g_Config.m_ClDummy].m_Direction = 1;
 
+		// TClient experimental AutoPilot. This intentionally uses only normal player inputs.
+		// It is a general heuristic controller, not a guaranteed DDRace solver.
+		if(g_Config.m_TcAutoPilot && !g_Config.m_ClDummy && GameClient()->m_Snap.m_pLocalCharacter && !GameClient()->m_Snap.m_SpecInfo.m_Active)
+		{
+			const CNetObj_Character *pChr = GameClient()->m_Snap.m_pLocalCharacter;
+			const vec2 TeePos((float)pChr->m_X, (float)pChr->m_Y);
+			const float VelX = pChr->m_VelX / 256.0f;
+			const float VelY = pChr->m_VelY / 256.0f;
+
+			// Prefer moving right. Probe collision ahead and below so we can react to
+			// simple walls and gaps without any map-specific coordinates.
+			const bool WallAhead = Collision()->CheckPoint(TeePos.x + 24.0f, TeePos.y) ||
+				Collision()->CheckPoint(TeePos.x + 24.0f, TeePos.y - 14.0f);
+			const bool GroundHere = Collision()->CheckPoint(TeePos.x, TeePos.y + 20.0f);
+			const bool GroundAhead = Collision()->CheckPoint(TeePos.x + 40.0f, TeePos.y + 24.0f);
+
+			m_aInputData[g_Config.m_ClDummy].m_Direction = 1;
+			m_aInputData[g_Config.m_ClDummy].m_Jump = (WallAhead || (GroundHere && !GroundAhead)) ? 1 : 0;
+
+			// Aim forward/up. If falling into a gap, try a hook to an upper-forward
+			// surface; release it again once the fall has been arrested.
+			m_aInputData[g_Config.m_ClDummy].m_TargetX = 220;
+			m_aInputData[g_Config.m_ClDummy].m_TargetY = -180;
+			const bool NeedHook = (!GroundAhead && VelY > 0.5f) || (WallAhead && VelX < 0.5f);
+			m_aInputData[g_Config.m_ClDummy].m_Hook = NeedHook ? 1 : 0;
+		}
+
 		// dummy copy moves
 		if(g_Config.m_ClDummyCopyMoves)
 		{
